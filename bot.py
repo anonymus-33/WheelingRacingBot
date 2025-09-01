@@ -186,4 +186,4 @@ async def stats(ctx):
     embed.add_field(name="Canales de voz", value=str(len(guild.voice_channels)))
     await ctx.send(embed=embed)
 
-bot.run(MTQwNTU2ODg2OTQ4MDc5MjE3Ng.GIukO_.25-8jEWTxRDkjDCgHqZyfFfk89uYGAdixoW1FU)
+bot.run(DISCORD_TOKEN)
