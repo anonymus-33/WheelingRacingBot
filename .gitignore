@@ -1,0 +1,7 @@
+# No subir el token
+.env
+
+# Archivos de caché de Python
+__pycache__/
+*.py[cod]
+*.egg-info/
