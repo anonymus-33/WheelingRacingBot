@@ -174,7 +174,18 @@ async def f1_news():
                 for h in headlines:
                     await channel.send(f"📰 {h}")
 
-f1_news.start()
+@bot.event
+async def on_ready():
+    print(f"{bot.user} está activo!")
+    try:
+        synced = await bot.tree.sync()
+        print(f"Slash commands sincronizados ({len(synced)})")
+    except Exception as e:
+        print(e)
+
+    # Iniciar la tarea de noticias después de que el bot esté listo
+    f1_news.start()
+
 
 # -------------------- ESTADÍSTICAS DEL SERVIDOR --------------------
 @bot.command()
