@@ -9,7 +9,7 @@ from PIL import Image
 import io
 
 load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 intents = discord.Intents.default()
 intents.members = True
