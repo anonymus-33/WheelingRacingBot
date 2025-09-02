@@ -203,7 +203,18 @@ async def ocr(ctx):
 async def keep_alive():
     print("Impulso keep alive enviado...")
 
-keep_alive.start()
+@bot.event
+async def on_ready():
+    print(f"{bot.user} está activo!")
+    try:
+        synced = await bot.tree.sync()
+        print(f"Slash commands sincronizados ({len(synced)})")
+    except Exception as e:
+        print(e)
+    # Aquí arrancamos el loop de keep_alive correctamente
+    if not keep_alive.is_running():
+        keep_alive.start()
+
 
 # -------------------- HTTP RENDER --------------------
 async def handle(request):
