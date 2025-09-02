@@ -13,7 +13,6 @@ import asyncio
 # -------------------- CARGAR TOKEN --------------------
 load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-OWNER_ID = int(os.getenv("OWNER_ID"))
 
 # -------------------- INTENTS --------------------
 intents = discord.Intents.default()
