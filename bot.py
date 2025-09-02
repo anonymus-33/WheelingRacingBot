@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
+from discord.ext import commands
 import os
 from dotenv import load_dotenv
 import aiohttp
@@ -17,15 +18,25 @@ intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
 intents.reactions = True
+bot = commands.Bot(command_prefix="-", intents=intents)
 
-# Servicio web con puerto abierto
+# Simple webserver para Render
 async def handle(request):
     return web.Response(text="Wheeling Racing Bot activo!")
 
-app = web.Application()
-app.router.add_get("/", handle)
+async def run_webserver():
+    app = web.Application()
+    app.router.add_get("/", handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", 10000)
+    await site.start()
 
-web.run_app(app, port=10000)  # Render detectará un puerto abierto
+async def main():
+    asyncio.create_task(run_webserver())  # Webserver en background
+    await bot.start(TOKEN)               # Bot de Discord
+
+asyncio.run(main())
 
 # Desactivar help por defecto
 bot = commands.Bot(command_prefix="-", intents=intents, help_command=None)
