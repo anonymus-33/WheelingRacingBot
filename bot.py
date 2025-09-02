@@ -225,7 +225,19 @@ async def help(ctx):
 @tasks.loop(minutes=5)
 async def keep_alive():
     print("Impulso enviado para mantener vivo el bot")
-keep_alive.start()
+
+@bot.event
+async def on_ready():
+    print(f"{bot.user} está activo!")
+    try:
+        synced = await bot.tree.sync()
+        print(f"Slash commands sincronizados ({len(synced)})")
+    except Exception as e:
+        print(e)
+    # Arranca el keep_alive aquí dentro del loop activo
+    if not keep_alive.is_running():
+        keep_alive.start()
+
 
 # -------------------- RUN --------------------
 bot.run(DISCORD_TOKEN)
