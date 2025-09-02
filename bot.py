@@ -1,200 +1,162 @@
+import os
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
-import os
 from dotenv import load_dotenv
+import asyncio
 import aiohttp
-import pytesseract
-from PIL import Image
-import io
+import json
 
+# -------------------- CONFIG --------------------
 load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
+# Prefijo y intents
 intents = discord.Intents.default()
-intents.members = True
 intents.message_content = True
-intents.reactions = True
+intents.members = True
+bot = commands.Bot(command_prefix="-", intents=intents)
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+# Configuración (logs)
+CONFIG_FILE = "config.json"
+if not os.path.exists(CONFIG_FILE):
+    with open(CONFIG_FILE, "w") as f:
+        json.dump({}, f)
+
+def load_config():
+    with open(CONFIG_FILE, "r") as f:
+        return json.load(f)
+
+def save_config(data):
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(data, f, indent=4)
 
 # -------------------- EVENTOS --------------------
 @bot.event
 async def on_ready():
+    await bot.tree.sync()
     print(f"{bot.user} está activo!")
-    try:
-        synced = await bot.tree.sync()
-        print(f"Slash commands sincronizados ({len(synced)})")
-    except Exception as e:
-        print(e)
+    keep_alive.start()
+
+# -------------------- KEEP ALIVE --------------------
+@tasks.loop(minutes=5)
+async def keep_alive():
+    print("Manteniendo vivo el bot...")
+
+# -------------------- LOGS --------------------
+async def send_log(guild: discord.Guild, message: str):
+    config = load_config()
+    if str(guild.id) in config and "log_channel" in config[str(guild.id)]:
+        channel_id = config[str(guild.id)]["log_channel"]
+        channel = guild.get_channel(channel_id)
+        if channel:
+            await channel.send(f"📋 {message}")
+
+@bot.tree.command(name="set-logs", description="Configura el canal de logs")
+@app_commands.checks.has_permissions(administrator=True)
+async def set_logs(interaction: discord.Interaction, canal: discord.TextChannel):
+    config = load_config()
+    if str(interaction.guild.id) not in config:
+        config[str(interaction.guild.id)] = {}
+    config[str(interaction.guild.id)]["log_channel"] = canal.id
+    save_config(config)
+    await interaction.response.send_message(f"✅ Canal de logs configurado en {canal.mention}", ephemeral=True)
 
 # -------------------- MODERACIÓN --------------------
-@bot.command()
-@commands.has_permissions(ban_members=True)
-async def ban(ctx, member: discord.Member, *, reason=None):
-    await member.ban(reason=reason)
-    await ctx.send(f"{member} ha sido baneado. Razón: {reason}")
-    logs = discord.utils.get(ctx.guild.text_channels, name="logs-moderacion")
-    if logs:
-        await logs.send(f"✅ {ctx.author} baneó a {member}. Razón: {reason}")
-
-@bot.command()
-@commands.has_permissions(kick_members=True)
-async def kick(ctx, member: discord.Member, *, reason=None):
-    await member.kick(reason=reason)
-    await ctx.send(f"{member} ha sido expulsado. Razón: {reason}")
-    logs = discord.utils.get(ctx.guild.text_channels, name="logs-moderacion")
-    if logs:
-        await logs.send(f"⚠️ {ctx.author} expulsó a {member}. Razón: {reason}")
-
-@bot.command()
-@commands.has_permissions(moderate_members=True)
-async def timeout(ctx, member: discord.Member, duration: int):
-    await member.timeout(discord.Duration(seconds=duration))
-    await ctx.send(f"{member} ha sido puesto en timeout por {duration} segundos.")
-    logs = discord.utils.get(ctx.guild.text_channels, name="logs-moderacion")
-    if logs:
-        await logs.send(f"⏱️ {ctx.author} puso en timeout a {member} por {duration} segundos.")
-
-# Slash commands de moderación
-@app_commands.command(name="ban", description="Banea a un miembro (staff)")
+@bot.tree.command(name="ban", description="Banea a un miembro")
 @app_commands.checks.has_permissions(ban_members=True)
-async def slash_ban(interaction: discord.Interaction, member: discord.Member, reason: str = None):
-    await member.ban(reason=reason)
-    await interaction.response.send_message(f"{member} ha sido baneado. Razón: {reason}")
-    logs = discord.utils.get(interaction.guild.text_channels, name="logs-moderacion")
-    if logs:
-        await logs.send(f"✅ {interaction.user} baneó a {member}. Razón: {reason}")
+async def ban(interaction: discord.Interaction, miembro: discord.Member, razon: str = "No especificada"):
+    await miembro.ban(reason=razon)
+    await interaction.response.send_message(f"🚫 {miembro} baneado. Razón: {razon}")
+    await send_log(interaction.guild, f"{miembro} fue baneado por {interaction.user}. Razón: {razon}")
 
-bot.tree.add_command(slash_ban)
+@bot.tree.command(name="kick", description="Expulsa a un miembro")
+@app_commands.checks.has_permissions(kick_members=True)
+async def kick(interaction: discord.Interaction, miembro: discord.Member, razon: str = "No especificada"):
+    await miembro.kick(reason=razon)
+    await interaction.response.send_message(f"👢 {miembro} expulsado. Razón: {razon}")
+    await send_log(interaction.guild, f"{miembro} fue expulsado por {interaction.user}. Razón: {razon}")
+
+@bot.tree.command(name="timeout", description="Aplica timeout a un miembro")
+@app_commands.checks.has_permissions(moderate_members=True)
+async def timeout(interaction: discord.Interaction, miembro: discord.Member, minutos: int, razon: str = "No especificada"):
+    duracion = discord.utils.utcnow() + discord.timedelta(minutes=minutos)
+    await miembro.timeout(until=duracion, reason=razon)
+    await interaction.response.send_message(f"⏳ {miembro} en timeout por {minutos} minutos. Razón: {razon}")
+    await send_log(interaction.guild, f"{miembro} recibió timeout por {minutos}m. Razón: {razon}")
+
+# -------------------- HELP --------------------
+@bot.tree.command(name="help", description="Muestra el menú de ayuda del bot")
+async def slash_help(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="📘 Menú de Ayuda - Bot Wheeling Racing",
+        description="Lista de comandos y funciones disponibles:",
+        color=0xf1c40f
+    )
+    embed.add_field(name="⚙️ Moderación", value="`/ban`, `/kick`, `/timeout`", inline=False)
+    embed.add_field(name="👥 Roles", value="`/autoroles` - Auto roles con reacciones", inline=False)
+    embed.add_field(name="🏁 GP", value="`/gp` (calendario/clasificación), `/curiosidades`", inline=False)
+    embed.add_field(name="🎮 Diversión", value="`/trivial` - Pregunta aleatoria de F1", inline=False)
+    embed.add_field(name="📝 Utilidades", value="`/ocr` (texto de imágenes), `/stats` (estadísticas servidor)", inline=False)
+    embed.set_footer(text="Bot de Fórmula 1 - Wheeling Racing 🚀")
+    await interaction.response.send_message(embed=embed)
 
 # -------------------- AUTOROLES --------------------
-@bot.command()
-@commands.has_permissions(manage_roles=True)
-async def autoroles(ctx):
+@bot.tree.command(name="autoroles", description="Crea un embed con auto roles")
+@app_commands.checks.has_permissions(manage_roles=True)
+async def autoroles(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="Asignación de Roles",
-        description="Reacciona para obtener tu rol:\n🏎️ Piloto\n🛠️ Mecánico\n🎤 Fan",
-        color=discord.Color.red()
+        title="👥 Auto Roles",
+        description="Reacciona para obtener o quitar un rol",
+        color=discord.Color.blue()
     )
-    msg = await ctx.send(embed=embed)
-    roles = {
-        "🏎️": "Piloto",
-        "🛠️": "Mecánico",
-        "🎤": "Fan"
-    }
-    for emoji in roles:
-        await msg.add_reaction(emoji)
+    embed.add_field(name="🏎️ Piloto", value="Reacciona con 🏎️", inline=False)
+    embed.add_field(name="🛠️ Staff", value="Reacciona con 🛠️", inline=False)
+
+    msg = await interaction.channel.send(embed=embed)
+    await msg.add_reaction("🏎️")
+    await msg.add_reaction("🛠️")
+
+    await interaction.response.send_message("✅ Auto roles configurados.", ephemeral=True)
 
 @bot.event
-async def on_reaction_add(reaction, user):
-    if user.bot:
+async def on_raw_reaction_add(payload):
+    if payload.member.bot:
         return
-    roles = {
-        "🏎️": "Piloto",
-        "🛠️": "Mecánico",
-        "🎤": "Fan"
-    }
-    if str(reaction.emoji) in roles:
-        role = discord.utils.get(user.guild.roles, name=roles[str(reaction.emoji)])
-        if role:
-            await user.add_roles(role)
+    guild = bot.get_guild(payload.guild_id)
+    role = None
+    if payload.emoji.name == "🏎️":
+        role = discord.utils.get(guild.roles, name="Piloto")
+    elif payload.emoji.name == "🛠️":
+        role = discord.utils.get(guild.roles, name="Staff")
+    if role:
+        await payload.member.add_roles(role)
 
 @bot.event
-async def on_reaction_remove(reaction, user):
-    if user.bot:
+async def on_raw_reaction_remove(payload):
+    guild = bot.get_guild(payload.guild_id)
+    member = guild.get_member(payload.user_id)
+    if not member:
         return
-    roles = {
-        "🏎️": "Piloto",
-        "🛠️": "Mecánico",
-        "🎤": "Fan"
-    }
-    if str(reaction.emoji) in roles:
-        role = discord.utils.get(user.guild.roles, name=roles[str(reaction.emoji)])
-        if role:
-            await user.remove_roles(role)
+    role = None
+    if payload.emoji.name == "🏎️":
+        role = discord.utils.get(guild.roles, name="Piloto")
+    elif payload.emoji.name == "🛠️":
+        role = discord.utils.get(guild.roles, name="Staff")
+    if role:
+        await member.remove_roles(role)
 
-# -------------------- GP INFO --------------------
-@bot.command()
-async def gp(ctx, tipo="imagen"):
-    """Muestra calendario o clasificación"""
-    if tipo.lower() == "texto":
-        await ctx.send("Aquí iría el calendario o clasificación en texto.")
-    else:
-        await ctx.send("Sube aquí la imagen de calendario o clasificación.")
+# -------------------- ESTADÍSTICAS --------------------
+@bot.tree.command(name="stats", description="Muestra estadísticas del servidor")
+async def stats(interaction: discord.Interaction):
+    guild = interaction.guild
+    embed = discord.Embed(title="📊 Estadísticas del Servidor", color=discord.Color.green())
+    embed.add_field(name="👥 Miembros", value=str(guild.member_count), inline=True)
+    embed.add_field(name="💬 Canales de texto", value=str(len(guild.text_channels)), inline=True)
+    embed.add_field(name="🔊 Canales de voz", value=str(len(guild.voice_channels)), inline=True)
+    embed.add_field(name="🎭 Roles", value=str(len(guild.roles)), inline=True)
+    await interaction.response.send_message(embed=embed)
 
-@bot.command()
-async def trivial(ctx):
-    await ctx.send("Pregunta de Trivial sobre F1: ...")
-
-@bot.command()
-async def curiosidades(ctx):
-    curiosidades = [
-        "Curiosidad 1 del GP",
-        "Curiosidad 2 del GP",
-        "Curiosidad 3 del GP",
-        "Curiosidad 4 del GP",
-        "Curiosidad 5 del GP"
-    ]
-    embed = discord.Embed(title="Curiosidades del GP", description="\n".join(curiosidades), color=discord.Color.blue())
-    await ctx.send(embed=embed)
-
-# OCR de imagen a texto
-@bot.command()
-async def ocr(ctx):
-    if ctx.message.attachments:
-        image_url = ctx.message.attachments[0].url
-        async with aiohttp.ClientSession() as session:
-            async with session.get(image_url) as resp:
-                data = await resp.read()
-                img = Image.open(io.BytesIO(data))
-                texto = pytesseract.image_to_string(img)
-                await ctx.send(f"Texto extraído:\n{texto}")
-    else:
-        await ctx.send("Adjunta una imagen para extraer el texto.")
-
-# -------------------- NOTICIAS F1 --------------------
-news_channels = []
-
-@tasks.loop(minutes=5)
-async def f1_news():
-    for guild in bot.guilds:
-        for channel in guild.text_channels:
-            if channel.name == "noticias-f1":
-                news_channels.append(channel)
-
-    async with aiohttp.ClientSession() as session:
-        url = "https://www.formula1.com/en/latest.html"  # ejemplo
-        async with session.get(url) as resp:
-            html = await resp.text()
-            # Esto sería scraping simple de titulares
-            # Para hacerlo más profesional se puede usar una API real
-            headlines = ["Titular 1 de F1", "Titular 2 de F1"]  
-            for channel in news_channels:
-                for h in headlines:
-                    await channel.send(f"📰 {h}")
-
-@bot.event
-async def on_ready():
-    print(f"{bot.user} está activo!")
-    try:
-        synced = await bot.tree.sync()
-        print(f"Slash commands sincronizados ({len(synced)})")
-    except Exception as e:
-        print(e)
-
-    # Iniciar la tarea de noticias después de que el bot esté listo
-    f1_news.start()
-
-
-# -------------------- ESTADÍSTICAS DEL SERVIDOR --------------------
-@bot.command()
-async def stats(ctx):
-    guild = ctx.guild
-    embed = discord.Embed(title=f"Estadísticas de {guild.name}", color=discord.Color.green())
-    embed.add_field(name="Miembros totales", value=str(guild.member_count))
-    embed.add_field(name="Canales de texto", value=str(len(guild.text_channels)))
-    embed.add_field(name="Canales de voz", value=str(len(guild.voice_channels)))
-    await ctx.send(embed=embed)
-
+# -------------------- ARRANQUE --------------------
 bot.run(DISCORD_TOKEN)
+
