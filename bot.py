@@ -4,44 +4,23 @@ from discord import app_commands
 import os
 from dotenv import load_dotenv
 import aiohttp
-import pytesseract
 from PIL import Image
 import io
-from aiohttp import web
+import pytesseract
 import asyncio
 
-# -------------------- CARGAR TOKEN --------------------
 load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
-# -------------------- INTENTS --------------------
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
 intents.reactions = True
 
-bot = commands.Bot(command_prefix="-", intents=intents)
+# Desactivar help por defecto
+bot = commands.Bot(command_prefix="-", intents=intents, help_command=None)
 
-# -------------------- HTTP SERVER PARA RENDER --------------------
-async def handle(request):
-    return web.Response(text="Wheeling Racing alive!")
-
-app_http = web.Application()
-app_http.router.add_get("/", handle)
-
-async def start_webserver():
-    runner = web.AppRunner(app_http)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", 10000)
-    await site.start()
-    print("Servidor HTTP iniciado en puerto 10000")
-
-# -------------------- KEEP ALIVE --------------------
-@tasks.loop(minutes=4)
-async def keep_alive():
-    print("Impulso keep_alive enviado...")
-
-# -------------------- ON READY --------------------
+# -------------------- EVENTOS --------------------
 @bot.event
 async def on_ready():
     print(f"{bot.user} está activo!")
@@ -50,9 +29,6 @@ async def on_ready():
         print(f"Slash commands sincronizados ({len(synced)})")
     except Exception as e:
         print(e)
-    if not keep_alive.is_running():
-        keep_alive.start()
-    asyncio.create_task(start_webserver())
 
 # -------------------- MODERACIÓN --------------------
 @bot.command()
@@ -64,7 +40,7 @@ async def ban(ctx, member: discord.Member, *, reason=None):
     if logs:
         await logs.send(f"✅ {ctx.author} baneó a {member}. Razón: {reason}")
 
-@app_commands.command(name="ban", description="Banea un miembro")
+@app_commands.command(name="ban", description="Banea a un miembro (staff)")
 @app_commands.checks.has_permissions(ban_members=True)
 async def slash_ban(interaction: discord.Interaction, member: discord.Member, reason: str = None):
     await member.ban(reason=reason)
@@ -83,7 +59,7 @@ async def kick(ctx, member: discord.Member, *, reason=None):
     if logs:
         await logs.send(f"⚠️ {ctx.author} expulsó a {member}. Razón: {reason}")
 
-@app_commands.command(name="kick", description="Expulsa un miembro")
+@app_commands.command(name="kick", description="Expulsa a un miembro (staff)")
 @app_commands.checks.has_permissions(kick_members=True)
 async def slash_kick(interaction: discord.Interaction, member: discord.Member, reason: str = None):
     await member.kick(reason=reason)
@@ -102,7 +78,7 @@ async def timeout(ctx, member: discord.Member, duration: int):
     if logs:
         await logs.send(f"⏱️ {ctx.author} puso en timeout a {member} por {duration} segundos.")
 
-@app_commands.command(name="timeout", description="Pone un miembro en timeout")
+@app_commands.command(name="timeout", description="Pone a un miembro en timeout (staff)")
 @app_commands.checks.has_permissions(moderate_members=True)
 async def slash_timeout(interaction: discord.Interaction, member: discord.Member, duration: int):
     await member.timeout(discord.Duration(seconds=duration))
@@ -122,28 +98,14 @@ async def autoroles(ctx):
         color=discord.Color.red()
     )
     msg = await ctx.send(embed=embed)
-    roles = {"🏎️":"Piloto","🛠️":"Mecánico","🎤":"Fan"}
-    for emoji in roles: await msg.add_reaction(emoji)
-
-@app_commands.command(name="autoroles", description="Crear autoroles con reacciones")
-async def slash_autoroles(interaction: discord.Interaction):
-    if interaction.user.id != OWNER_ID:
-        await interaction.response.send_message("Solo el dueño puede usar esto.", ephemeral=True)
-        return
-    embed = discord.Embed(
-        title="Asignación de Roles",
-        description="Reacciona para obtener tu rol:\n🏎️ Piloto\n🛠️ Mecánico\n🎤 Fan",
-        color=discord.Color.red()
-    )
-    msg = await interaction.channel.send(embed=embed)
-    roles = {"🏎️":"Piloto","🛠️":"Mecánico","🎤":"Fan"}
-    for emoji in roles: await msg.add_reaction(emoji)
-bot.tree.add_command(slash_autoroles)
+    roles = {"🏎️": "Piloto", "🛠️": "Mecánico", "🎤": "Fan"}
+    for emoji in roles:
+        await msg.add_reaction(emoji)
 
 @bot.event
 async def on_reaction_add(reaction, user):
     if user.bot: return
-    roles = {"🏎️":"Piloto","🛠️":"Mecánico","🎤":"Fan"}
+    roles = {"🏎️": "Piloto", "🛠️": "Mecánico", "🎤": "Fan"}
     if str(reaction.emoji) in roles:
         role = discord.utils.get(user.guild.roles, name=roles[str(reaction.emoji)])
         if role:
@@ -152,28 +114,33 @@ async def on_reaction_add(reaction, user):
 @bot.event
 async def on_reaction_remove(reaction, user):
     if user.bot: return
-    roles = {"🏎️":"Piloto","🛠️":"Mecánico","🎤":"Fan"}
+    roles = {"🏎️": "Piloto", "🛠️": "Mecánico", "🎤": "Fan"}
     if str(reaction.emoji) in roles:
         role = discord.utils.get(user.guild.roles, name=roles[str(reaction.emoji)])
         if role:
             await user.remove_roles(role)
 
-# -------------------- GP / INFO --------------------
+# -------------------- GP INFO --------------------
 @bot.command()
 async def gp(ctx, tipo="imagen"):
-    await ctx.send("Aquí iría calendario o clasificación.")
+    if tipo.lower() == "texto":
+        await ctx.send("Aquí iría el calendario o clasificación en texto.")
+    else:
+        await ctx.send("Sube aquí la imagen de calendario o clasificación.")
 
-@app_commands.command(name="gp", description="Ver calendario o clasificación")
+@app_commands.command(name="gp", description="Muestra calendario o clasificación")
 async def slash_gp(interaction: discord.Interaction, tipo: str = "imagen"):
-    await interaction.response.send_message(f"Tipo seleccionado: {tipo}")
-
+    if tipo.lower() == "texto":
+        await interaction.response.send_message("Aquí iría el calendario o clasificación en texto.")
+    else:
+        await interaction.response.send_message("Sube aquí la imagen de calendario o clasificación.")
 bot.tree.add_command(slash_gp)
 
 @bot.command()
 async def trivial(ctx):
     await ctx.send("Pregunta de Trivial sobre F1: ...")
 
-@app_commands.command(name="trivial", description="Pregunta de Trivial de F1")
+@app_commands.command(name="trivial", description="Pregunta de Trivial sobre F1")
 async def slash_trivial(interaction: discord.Interaction):
     await interaction.response.send_message("Pregunta de Trivial sobre F1: ...")
 bot.tree.add_command(slash_trivial)
@@ -191,6 +158,7 @@ async def slash_curiosidades(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 bot.tree.add_command(slash_curiosidades)
 
+# -------------------- ESTADÍSTICAS --------------------
 @bot.command()
 async def stats(ctx):
     guild = ctx.guild
@@ -252,6 +220,12 @@ async def help(ctx):
     embed.add_field(name="-stats / /stats", value="Muestra estadísticas del servidor", inline=False)
     embed.add_field(name="-ocr / /ocr", value="Extrae texto de una imagen", inline=False)
     await ctx.send(embed=embed)
+
+# -------------------- KEEP ALIVE (impulsos) --------------------
+@tasks.loop(minutes=5)
+async def keep_alive():
+    print("Impulso enviado para mantener vivo el bot")
+keep_alive.start()
 
 # -------------------- RUN --------------------
 bot.run(DISCORD_TOKEN)
