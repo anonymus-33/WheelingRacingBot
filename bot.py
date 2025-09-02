@@ -34,7 +34,7 @@ async def run_webserver():
 
 async def main():
     asyncio.create_task(run_webserver())  # Webserver en background
-    await bot.start(TOKEN)               # Bot de Discord
+    await bot.start(DISCORD_TOKEN)               # Bot de Discord
 
 asyncio.run(main())
 
