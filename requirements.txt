@@ -1,6 +1,7 @@
-py-cord==2.6.3
+nextcord==2.0.5
 python-dotenv==1.0.1
 aiohttp==3.9.5
+
 
 
 

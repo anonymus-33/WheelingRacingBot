@@ -1,7 +1,7 @@
 import os
-import discord
-from discord.ext import commands, tasks
-from discord import app_commands
+import nextcord as discord
+from nextcord.ext import commands, tasks
+from nextcord import Interaction, app_commands
 from dotenv import load_dotenv
 import asyncio
 import aiohttp
