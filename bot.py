@@ -4,6 +4,7 @@ from discord import app_commands
 import os
 from dotenv import load_dotenv
 import aiohttp
+from aiohttp import web
 from PIL import Image
 import io
 import pytesseract
@@ -16,6 +17,15 @@ intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
 intents.reactions = True
+
+# Servicio web con puerto abierto
+async def handle(request):
+    return web.Response(text="Wheeling Racing Bot activo!")
+
+app = web.Application()
+app.router.add_get("/", handle)
+
+web.run_app(app, port=10000)  # Render detectará un puerto abierto
 
 # Desactivar help por defecto
 bot = commands.Bot(command_prefix="-", intents=intents, help_command=None)
@@ -31,144 +41,82 @@ async def on_ready():
         print(e)
 
 # -------------------- MODERACIÓN --------------------
-@bot.command()
-@commands.has_permissions(ban_members=True)
-async def ban(ctx, member: discord.Member, *, reason=None):
-    await member.ban(reason=reason)
-    await ctx.send(f"{member} ha sido baneado. Razón: {reason}")
-    logs = discord.utils.get(ctx.guild.text_channels, name="logs-moderacion")
-    if logs:
-        await logs.send(f"✅ {ctx.author} baneó a {member}. Razón: {reason}")
-
-@app_commands.command(name="ban", description="Banea a un miembro (staff)")
+@bot.tree.command(name="ban", description="Banea a un miembro (staff)")
 @app_commands.checks.has_permissions(ban_members=True)
 async def slash_ban(interaction: discord.Interaction, member: discord.Member, reason: str = None):
     await member.ban(reason=reason)
-    await interaction.response.send_message(f"{member} ha sido baneado. Razón: {reason}")
-    logs = discord.utils.get(interaction.guild.text_channels, name="logs-moderacion")
-    if logs:
-        await logs.send(f"✅ {interaction.user} baneó a {member}. Razón: {reason}")
-bot.tree.add_command(slash_ban)
+    await interaction.response.send_message(f"{member} ha sido baneado. Razón: {reason}", ephemeral=True)
+    logs_channel = discord.utils.get(interaction.guild.text_channels, name="logs-moderacion")
+    if logs_channel:
+        await logs_channel.send(f"✅ {interaction.user} baneó a {member}. Razón: {reason}")
 
-@bot.command()
-@commands.has_permissions(kick_members=True)
-async def kick(ctx, member: discord.Member, *, reason=None):
-    await member.kick(reason=reason)
-    await ctx.send(f"{member} ha sido expulsado. Razón: {reason}")
-    logs = discord.utils.get(ctx.guild.text_channels, name="logs-moderacion")
-    if logs:
-        await logs.send(f"⚠️ {ctx.author} expulsó a {member}. Razón: {reason}")
-
-@app_commands.command(name="kick", description="Expulsa a un miembro (staff)")
+@bot.tree.command(name="kick", description="Expulsa a un miembro (staff)")
 @app_commands.checks.has_permissions(kick_members=True)
 async def slash_kick(interaction: discord.Interaction, member: discord.Member, reason: str = None):
     await member.kick(reason=reason)
-    await interaction.response.send_message(f"{member} ha sido expulsado. Razón: {reason}")
-    logs = discord.utils.get(interaction.guild.text_channels, name="logs-moderacion")
-    if logs:
-        await logs.send(f"⚠️ {interaction.user} expulsó a {member}. Razón: {reason}")
-bot.tree.add_command(slash_kick)
+    await interaction.response.send_message(f"{member} ha sido expulsado. Razón: {reason}", ephemeral=True)
+    logs_channel = discord.utils.get(interaction.guild.text_channels, name="logs-moderacion")
+    if logs_channel:
+        await logs_channel.send(f"⚠️ {interaction.user} expulsó a {member}. Razón: {reason}")
 
-@bot.command()
-@commands.has_permissions(moderate_members=True)
-async def timeout(ctx, member: discord.Member, duration: int):
-    await member.timeout(discord.Duration(seconds=duration))
-    await ctx.send(f"{member} ha sido puesto en timeout por {duration} segundos.")
-    logs = discord.utils.get(ctx.guild.text_channels, name="logs-moderacion")
-    if logs:
-        await logs.send(f"⏱️ {ctx.author} puso en timeout a {member} por {duration} segundos.")
-
-@app_commands.command(name="timeout", description="Pone a un miembro en timeout (staff)")
+@bot.tree.command(name="timeout", description="Pone en timeout a un miembro (staff)")
 @app_commands.checks.has_permissions(moderate_members=True)
 async def slash_timeout(interaction: discord.Interaction, member: discord.Member, duration: int):
     await member.timeout(discord.Duration(seconds=duration))
-    await interaction.response.send_message(f"{member} ha sido puesto en timeout por {duration} segundos.")
-    logs = discord.utils.get(interaction.guild.text_channels, name="logs-moderacion")
-    if logs:
-        await logs.send(f"⏱️ {interaction.user} puso en timeout a {member} por {duration} segundos.")
-bot.tree.add_command(slash_timeout)
-
-# -------------------- AUTOROLES --------------------
-@bot.command()
-@commands.has_permissions(manage_roles=True)
-async def autoroles(ctx):
-    embed = discord.Embed(
-        title="Asignación de Roles",
-        description="Reacciona para obtener tu rol:\n🏎️ Piloto\n🛠️ Mecánico\n🎤 Fan",
-        color=discord.Color.red()
-    )
-    msg = await ctx.send(embed=embed)
-    roles = {"🏎️": "Piloto", "🛠️": "Mecánico", "🎤": "Fan"}
-    for emoji in roles:
-        await msg.add_reaction(emoji)
-
-@bot.event
-async def on_reaction_add(reaction, user):
-    if user.bot: return
-    roles = {"🏎️": "Piloto", "🛠️": "Mecánico", "🎤": "Fan"}
-    if str(reaction.emoji) in roles:
-        role = discord.utils.get(user.guild.roles, name=roles[str(reaction.emoji)])
-        if role:
-            await user.add_roles(role)
-
-@bot.event
-async def on_reaction_remove(reaction, user):
-    if user.bot: return
-    roles = {"🏎️": "Piloto", "🛠️": "Mecánico", "🎤": "Fan"}
-    if str(reaction.emoji) in roles:
-        role = discord.utils.get(user.guild.roles, name=roles[str(reaction.emoji)])
-        if role:
-            await user.remove_roles(role)
+    await interaction.response.send_message(f"{member} ha sido puesto en timeout por {duration} segundos.", ephemeral=True)
+    logs_channel = discord.utils.get(interaction.guild.text_channels, name="logs-moderacion")
+    if logs_channel:
+        await logs_channel.send(f"⏱️ {interaction.user} puso en timeout a {member} por {duration} segundos.")
 
 # -------------------- GP INFO --------------------
-@bot.command()
-async def gp(ctx, tipo="imagen"):
-    if tipo.lower() == "texto":
-        await ctx.send("Aquí iría el calendario o clasificación en texto.")
-    else:
-        await ctx.send("Sube aquí la imagen de calendario o clasificación.")
-
-@app_commands.command(name="gp", description="Muestra calendario o clasificación")
+@bot.tree.command(name="gp", description="Muestra calendario o clasificación del GP")
 async def slash_gp(interaction: discord.Interaction, tipo: str = "imagen"):
     if tipo.lower() == "texto":
         await interaction.response.send_message("Aquí iría el calendario o clasificación en texto.")
     else:
         await interaction.response.send_message("Sube aquí la imagen de calendario o clasificación.")
-bot.tree.add_command(slash_gp)
 
-@bot.command()
-async def trivial(ctx):
-    await ctx.send("Pregunta de Trivial sobre F1: ...")
-
-@app_commands.command(name="trivial", description="Pregunta de Trivial sobre F1")
+# -------------------- TRIVIAL --------------------
+@bot.tree.command(name="trivial", description="Pregunta de trivial sobre F1")
 async def slash_trivial(interaction: discord.Interaction):
     await interaction.response.send_message("Pregunta de Trivial sobre F1: ...")
-bot.tree.add_command(slash_trivial)
 
-@bot.command()
-async def curiosidades(ctx):
-    curiosidades = [f"Curiosidad {i}" for i in range(1,6)]
-    embed = discord.Embed(title="Curiosidades del GP", description="\n".join(curiosidades), color=discord.Color.blue())
-    await ctx.send(embed=embed)
-
-@app_commands.command(name="curiosidades", description="5 curiosidades de cada GP")
+# -------------------- CURIOSIDADES --------------------
+@bot.tree.command(name="curiosidades", description="Muestra 5 curiosidades del GP")
 async def slash_curiosidades(interaction: discord.Interaction):
-    curiosidades = [f"Curiosidad {i}" for i in range(1,6)]
-    embed = discord.Embed(title="Curiosidades del GP", description="\n".join(curiosidades), color=discord.Color.blue())
+    curiosidades = [
+        "Curiosidad 1 del GP",
+        "Curiosidad 2 del GP",
+        "Curiosidad 3 del GP",
+        "Curiosidad 4 del GP",
+        "Curiosidad 5 del GP"
+    ]
+    embed = discord.Embed(
+        title="Curiosidades del GP",
+        description="\n".join(curiosidades),
+        color=discord.Color.blue()
+    )
     await interaction.response.send_message(embed=embed)
-bot.tree.add_command(slash_curiosidades)
+
+# -------------------- AUTOROLES --------------------
+@bot.tree.command(name="autoroles", description="Crea un embed de autoroles (staff)")
+async def slash_autoroles(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.manage_roles:
+        await interaction.response.send_message("No tienes permisos para esto.", ephemeral=True)
+        return
+    embed = discord.Embed(
+        title="Asignación de Roles",
+        description="Reacciona para obtener tu rol:\n🏎️ Piloto\n🛠️ Mecánico\n🎤 Fan",
+        color=discord.Color.red()
+    )
+    msg = await interaction.channel.send(embed=embed)
+    roles = {"🏎️": "Piloto", "🛠️": "Mecánico", "🎤": "Fan"}
+    for emoji in roles:
+        await msg.add_reaction(emoji)
+    await interaction.response.send_message("Embed de autoroles creado.", ephemeral=True)
 
 # -------------------- ESTADÍSTICAS --------------------
-@bot.command()
-async def stats(ctx):
-    guild = ctx.guild
-    embed = discord.Embed(title=f"Estadísticas de {guild.name}", color=discord.Color.green())
-    embed.add_field(name="Miembros totales", value=str(guild.member_count))
-    embed.add_field(name="Canales de texto", value=str(len(guild.text_channels)))
-    embed.add_field(name="Canales de voz", value=str(len(guild.voice_channels)))
-    await ctx.send(embed=embed)
-
-@app_commands.command(name="stats", description="Estadísticas del servidor")
+@bot.tree.command(name="stats", description="Muestra estadísticas del servidor")
 async def slash_stats(interaction: discord.Interaction):
     guild = interaction.guild
     embed = discord.Embed(title=f"Estadísticas de {guild.name}", color=discord.Color.green())
@@ -176,7 +124,17 @@ async def slash_stats(interaction: discord.Interaction):
     embed.add_field(name="Canales de texto", value=str(len(guild.text_channels)))
     embed.add_field(name="Canales de voz", value=str(len(guild.voice_channels)))
     await interaction.response.send_message(embed=embed)
-bot.tree.add_command(slash_stats)
+
+# -------------------- CONFIGURACIÓN DE LOGS --------------------
+@bot.tree.command(name="set_channel_logs", description="Establece el canal de logs para moderación (staff)")
+async def slash_set_logs(interaction: discord.Interaction, canal: discord.TextChannel):
+    if not interaction.user.guild_permissions.manage_channels:
+        await interaction.response.send_message("No tienes permisos para esto.", ephemeral=True)
+        return
+    # Guardar canal en memoria o DB según tu implementación
+    global LOGS_CHANNEL_ID
+    LOGS_CHANNEL_ID = canal.id
+    await interaction.response.send_message(f"Canal de logs configurado: {canal.mention}", ephemeral=True)
 
 # -------------------- OCR --------------------
 @bot.command()
